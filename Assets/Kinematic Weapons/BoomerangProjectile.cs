@@ -1,0 +1,183 @@
+using UnityEngine;
+
+[RequireComponent(typeof(Rigidbody))]
+[RequireComponent(typeof(BoxCollider))]
+[RequireComponent(typeof(LineRenderer))]
+public class BoomerangProjectile : MonoBehaviour
+{
+    public float minimumDistance = 4f;
+    public float maximumDistance = 12f;
+    public float minimumFlightTime = 1f;
+    public float maximumFlightTime = 2f;
+    public float chargeTime = 1.5f;
+    public float curveAmount = 3f;
+    public float arcHeight = 2f;
+    public float spinSpeed = 720f;
+    public Vector3 spinAxis = Vector3.up;
+    public int pathPoints = 40;
+
+    public float ChargeAmount { get; private set; }
+
+    private Rigidbody rb;
+    private LineRenderer lineRenderer;
+    //private Transform returnPoint;
+    private Vector3 startPosition;
+    private Vector3 launchDirection;
+    private float flightTime;
+    private float flightProgress;
+    private bool isFlying;
+
+    void Awake()
+    {
+        rb = GetComponent<Rigidbody>();
+        lineRenderer = GetComponent<LineRenderer>();
+
+        rb.interpolation = RigidbodyInterpolation.Interpolate;
+        rb.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
+
+        lineRenderer.useWorldSpace = true;
+        lineRenderer.widthMultiplier = 0.03f;
+        lineRenderer.startColor = Color.yellow;
+        lineRenderer.endColor = Color.yellow;
+        lineRenderer.positionCount = 0;
+        lineRenderer.enabled = false;
+
+        if (lineRenderer.sharedMaterial == null)
+        {
+            Shader lineShader = Shader.Find("Universal Render Pipeline/Unlit");
+
+            if (lineShader == null)
+                lineShader = Shader.Find("Sprites/Default");
+
+            if (lineShader != null)
+                lineRenderer.material = new Material(lineShader);
+        }
+    }
+
+    void FixedUpdate()
+    {
+        if (!isFlying)
+            return;
+
+        flightProgress += Time.fixedDeltaTime / flightTime;
+
+        float progress = Mathf.Clamp01(flightProgress);
+        Vector3 nextPosition = GetFlightPosition(progress, startPosition, launchDirection, ChargeAmount);
+
+        rb.MovePosition(nextPosition);
+
+        Vector3 axis = spinAxis.sqrMagnitude > 0f ? spinAxis.normalized : Vector3.up;
+        Quaternion spin = Quaternion.AngleAxis(spinSpeed * Time.fixedDeltaTime, axis);
+        rb.MoveRotation(rb.rotation * spin);
+
+        if (flightProgress >= 1f)
+            FinishFlight();
+    }
+
+    public void Pickup()
+    {
+        isFlying = false;
+        ChargeAmount = 0f;
+        HidePath();
+    }
+
+    public void Drop()
+    {
+        isFlying = false;
+        ChargeAmount = 0f;
+        HidePath();
+    }
+
+    public void BeginCharge()
+    {
+        ChargeAmount = 0f;
+    }
+
+    public void Charge(float deltaTime)
+    {
+        ChargeAmount += deltaTime / Mathf.Max(0.01f, chargeTime);
+        ChargeAmount = Mathf.Clamp01(ChargeAmount);
+    }
+
+    public void ShowPath(Vector3 pathStart, Vector3 direction)
+    {
+        int pointCount = Mathf.Max(2, pathPoints);
+        Vector3 normalizedDirection = direction.normalized;
+
+        lineRenderer.positionCount = pointCount;
+        lineRenderer.enabled = true;
+
+        for (int i = 0; i < pointCount; i++)
+        {
+            float progress = (float)i / (pointCount - 1);
+            Vector3 point = GetFlightPosition(progress, pathStart, normalizedDirection, ChargeAmount);
+            lineRenderer.SetPosition(i, point);
+        }
+    }
+
+    public void HidePath()
+    {
+        lineRenderer.enabled = false;
+        lineRenderer.positionCount = 0;
+    }
+
+    public void Launch(Vector3 direction, float chargeAmount, Collider[] ownerColliders)
+    {
+        startPosition = rb.position;
+        launchDirection = direction.normalized;
+        ChargeAmount = Mathf.Clamp01(chargeAmount);
+        //returnPoint = target;
+        flightTime = Mathf.Lerp(minimumFlightTime, maximumFlightTime, ChargeAmount);
+        flightProgress = 0f;
+        isFlying = true;
+
+        HidePath();
+
+        rb.isKinematic = true;
+        rb.useGravity = false;
+
+        Collider[] boomerangColliders = GetComponentsInChildren<Collider>();
+
+        foreach (Collider boomerangCollider in boomerangColliders)
+        {
+            foreach (Collider ownerCollider in ownerColliders)
+                Physics.IgnoreCollision(boomerangCollider, ownerCollider, true);
+        }
+    }
+
+    Vector3 GetFlightPosition(float progress, Vector3 origin, Vector3 direction, float chargeAmount)
+    {
+        float distance = Mathf.Lerp(minimumDistance, maximumDistance, chargeAmount);
+        float outwardDistance = Mathf.Sin(progress * Mathf.PI);
+        float sidewaysDistance = Mathf.Sin(progress * Mathf.PI * 2f);
+
+        Vector3 sideDirection = Vector3.Cross(Vector3.up, direction).normalized;
+
+       /*if (sideDirection.sqrMagnitude == 0f)
+            sideDirection = transform.right;*/
+
+        Vector3 position = origin;
+        position += direction * distance * outwardDistance;
+        position += Vector3.up * arcHeight * outwardDistance;
+        position += sideDirection * curveAmount * sidewaysDistance;
+
+        /*if (progress > 0.5f)
+        {
+            float returnProgress = (progress - 0.5f) * 2f;
+            position += (targetPosition - origin) * returnProgress;
+        }*/
+
+        return position;
+    }
+
+    void FinishFlight()
+    {
+        isFlying = false;
+        ChargeAmount = 0f;
+
+        rb.isKinematic = false;
+        rb.useGravity = true;
+        rb.linearVelocity = Vector3.zero;
+        rb.angularVelocity = Vector3.zero;
+    }
+}
