@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.AI;
 
 public class WaveManager : MonoBehaviour
 {
@@ -20,16 +21,30 @@ public class WaveManager : MonoBehaviour
     public float timeBetweenWaves = 5f;
 
     public int CurrentWave { get; private set; }
+    public int EnemiesRemaining => activeEnemies.Count;
+
+    private List<Enemy> activeEnemies = new List<Enemy>();
 
     void Awake()
     {
-        raccoonTemplate.gameObject.SetActive(false);
-        bearTemplate.gameObject.SetActive(false);
-        flyingTemplate.gameObject.SetActive(false);
+        if (raccoonTemplate != null)
+            raccoonTemplate.gameObject.SetActive(false);
+
+        if (bearTemplate != null)
+            bearTemplate.gameObject.SetActive(false);
+
+        if (flyingTemplate != null)
+            flyingTemplate.gameObject.SetActive(false);
     }
 
     IEnumerator Start()
     {
+        if (raccoonTemplate == null || bearTemplate == null || flyingTemplate == null || tree == null || player == null)
+        {
+            Debug.LogError("Wave Manager is missing a reference.");
+            yield break;
+        }
+
         yield return new WaitForSeconds(1f);
 
         while (tree.IsAlive && player.IsAlive)
@@ -46,7 +61,11 @@ public class WaveManager : MonoBehaviour
                 yield return new WaitForSeconds(spawnDelay);
             }
 
-            yield return new WaitUntil(() => Enemy.ActiveEnemyCount == 0 || !tree.IsAlive || !player.IsAlive);
+            while (activeEnemies.Count > 0 && tree.IsAlive && player.IsAlive)
+            {
+                activeEnemies.RemoveAll(enemy => enemy == null);
+                yield return null;
+            }
 
             if (tree.IsAlive && player.IsAlive)
                 yield return new WaitForSeconds(timeBetweenWaves);
@@ -88,12 +107,16 @@ public class WaveManager : MonoBehaviour
 
         if (template.GetComponent<FlyingEnemy>() != null)
             position.y = 6f;
-        else if (template.GetComponent<BearEnemy>() != null)
-            position.y = 1.5f;
         else
-            position.y = 0.75f;
+        {
+            if (NavMesh.SamplePosition(position, out NavMeshHit hit, 5f, NavMesh.AllAreas))
+                position = hit.position;
+
+            position.y = template.GetComponent<BearEnemy>() != null ? 1.5f : 0.75f;
+        }
 
         Enemy enemy = Instantiate(template, position, Quaternion.identity);
         enemy.gameObject.SetActive(true);
+        activeEnemies.Add(enemy);
     }
 }

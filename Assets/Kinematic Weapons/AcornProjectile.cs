@@ -9,11 +9,14 @@ public class AcornProjectile : MonoBehaviour
     private Rigidbody rb;
     private Vector3 direction;
     private bool isMoving;
+    private float castRadius;
 
 
     void Awake()
     {
         rb = GetComponent<Rigidbody>();
+        SphereCollider sphereCollider = GetComponent<SphereCollider>();
+        castRadius = sphereCollider != null ? sphereCollider.radius * transform.lossyScale.x : 0.1f;
     }
 
     public void PreparePickup()
@@ -28,8 +31,8 @@ public class AcornProjectile : MonoBehaviour
     public void Launch(Vector3 launchDirection)
     {
         direction = launchDirection.normalized;
-        rb.isKinematic = true; // Disable physics simulation
-        rb.useGravity = false; // Disable gravity
+        rb.isKinematic = true;
+        rb.useGravity = false;
         isMoving = true;
     }
 
@@ -37,27 +40,64 @@ public class AcornProjectile : MonoBehaviour
     {
         if (isMoving)
         {
-           Vector3 nextPosition = rb.position + direction * speed * Time.fixedDeltaTime;
+            float distance = speed * Time.fixedDeltaTime;
+
+            if (FindHit(distance, out RaycastHit hit))
+            {
+                HitObject(hit.collider, hit.point, hit.normal);
+                return;
+            }
+
+            Vector3 nextPosition = rb.position + direction * distance;
             rb.MovePosition(nextPosition);
         }
     }
 
+    bool FindHit(float distance, out RaycastHit closestHit)
+    {
+        RaycastHit[] hits = Physics.SphereCastAll(rb.position, castRadius, direction, distance, ~0, QueryTriggerInteraction.Ignore);
+        float closestDistance = float.MaxValue;
+        bool foundHit = false;
+        closestHit = new RaycastHit();
+
+        foreach (RaycastHit hit in hits)
+        {
+            if (hit.collider.attachedRigidbody == rb || hit.collider.GetComponentInParent<PlayerController>() != null)
+                continue;
+
+            if (hit.distance < closestDistance)
+            {
+                closestDistance = hit.distance;
+                closestHit = hit;
+                foundHit = true;
+            }
+        }
+
+        return foundHit;
+    }
+
     void OnCollisionEnter(Collision collision)
     {
-        Enemy enemy = collision.gameObject.GetComponent<Enemy>();
+        HitObject(collision.collider, collision.GetContact(0).point, collision.GetContact(0).normal);
+    }
 
-        if (isMoving && enemy != null)
+    void HitObject(Collider hitCollider, Vector3 hitPoint, Vector3 hitNormal)
+    {
+        if (!isMoving)
+            return;
+
+        Enemy enemy = hitCollider.GetComponentInParent<Enemy>();
+
+        if (enemy != null)
         {
             enemy.TakeDamage(damage);
             Destroy(gameObject);
             return;
         }
 
-        if (isMoving)
-        {
-            isMoving = false;
-            rb.isKinematic = false; // Re-enable physics simulation
-            rb.useGravity = true; // Re-enable gravity
-        }
+        isMoving = false;
+        rb.position = hitPoint + hitNormal * castRadius;
+        rb.isKinematic = false;
+        rb.useGravity = true;
     }
 }

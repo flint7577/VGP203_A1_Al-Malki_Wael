@@ -2,35 +2,14 @@ using UnityEngine;
 
 public class Enemy : MonoBehaviour
 {
-    public static int ActiveEnemyCount { get; private set; }
-
     public float maxHealth = 50f;
     public float damage = 10f;
 
     private float currentHealth;
-    private bool counted;
 
     public float HealthPercent => currentHealth / maxHealth;
 
-    void OnEnable()
-    {
-        if (!counted)
-        {
-            ActiveEnemyCount++;
-            counted = true;
-        }
-    }
-
-    void OnDisable()
-    {
-        if (counted)
-        {
-            ActiveEnemyCount--;
-            counted = false;
-        }
-    }
-
-    void Start()
+    void Awake()
     {
         currentHealth = maxHealth;
     }
@@ -38,6 +17,11 @@ public class Enemy : MonoBehaviour
     public void TakeDamage(float damageAmount)
     {
         currentHealth -= damageAmount;
+
+        Renderer enemyRenderer = GetComponent<Renderer>();
+
+        if (enemyRenderer != null)
+            enemyRenderer.material.color = Color.Lerp(Color.black, Color.red, HealthPercent);
 
         BearEnemy bearEnemy = GetComponent<BearEnemy>();
 

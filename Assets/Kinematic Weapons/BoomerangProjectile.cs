@@ -33,6 +33,7 @@ public class BoomerangProjectile : MonoBehaviour
     private bool isFlying;
     private bool isPocketed;
     private Enemy lastEnemyHit;
+    private float castRadius = 0.1f;
 
     void Awake()
     {
@@ -89,6 +90,27 @@ public class BoomerangProjectile : MonoBehaviour
         float progress = Mathf.Clamp01(flightProgress);
         Vector3 targetPosition = returnPoint != null ? returnPoint.position : startPosition;
         Vector3 nextPosition = GetFlightPosition(progress, startPosition, launchDirection, ChargeAmount, targetPosition);
+
+        Vector3 movement = nextPosition - rb.position;
+
+        if (movement.sqrMagnitude > 0f && FindHit(movement, out RaycastHit hit))
+        {
+            Enemy enemy = hit.collider.GetComponentInParent<Enemy>();
+
+            if (enemy != null)
+            {
+                if (enemy != lastEnemyHit)
+                {
+                    enemy.TakeDamage(damage);
+                    lastEnemyHit = enemy;
+                }
+            }
+            else
+            {
+                FinishFlight();
+                return;
+            }
+        }
 
         rb.MovePosition(nextPosition);
 
@@ -219,13 +241,47 @@ public class BoomerangProjectile : MonoBehaviour
         if (!isFlying)
             return;
 
-        Enemy enemy = collision.gameObject.GetComponent<Enemy>();
+        Enemy enemy = collision.collider.GetComponentInParent<Enemy>();
 
         if (enemy != null && enemy != lastEnemyHit)
         {
             enemy.TakeDamage(damage);
             lastEnemyHit = enemy;
         }
+    }
+
+    bool FindHit(Vector3 movement, out RaycastHit closestHit)
+    {
+        RaycastHit[] hits = Physics.SphereCastAll(rb.position, castRadius, movement.normalized, movement.magnitude, ~0, QueryTriggerInteraction.Ignore);
+        float closestDistance = float.MaxValue;
+        bool foundHit = false;
+        closestHit = new RaycastHit();
+
+        foreach (RaycastHit hit in hits)
+        {
+            if (hit.collider.transform.IsChildOf(transform))
+                continue;
+
+            bool belongsToOwner = false;
+
+            foreach (Collider ownerCollider in ownerColliders)
+            {
+                if (hit.collider == ownerCollider)
+                {
+                    belongsToOwner = true;
+                    break;
+                }
+            }
+
+            if (!belongsToOwner && hit.distance < closestDistance)
+            {
+                closestDistance = hit.distance;
+                closestHit = hit;
+                foundHit = true;
+            }
+        }
+
+        return foundHit;
     }
 
     void FinishFlight()

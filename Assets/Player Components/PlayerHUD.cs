@@ -31,7 +31,7 @@ public class PlayerHUD : MonoBehaviour
             DrawBar(new Vector2(20f, 80f), tree.HealthPercent, Color.green, "Tree");
 
         if (waveManager != null)
-            GUI.Label(new Rect(20f, 110f, 250f, 30f), $"Wave {waveManager.CurrentWave}  Enemies {Enemy.ActiveEnemyCount}");
+            GUI.Label(new Rect(20f, 110f, 250f, 30f), $"Wave {waveManager.CurrentWave}  Enemies {waveManager.EnemiesRemaining}");
 
         if (!playerController.IsAlive || tree != null && !tree.IsAlive)
             GUI.Label(new Rect(Screen.width * 0.5f - 50f, 50f, 100f, 30f), "GAME OVER");

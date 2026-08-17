@@ -1,5 +1,4 @@
 using UnityEngine;
-using UnityEngine.AI;
 
 public class BearEnemy : MonoBehaviour
 {
@@ -15,7 +14,6 @@ public class BearEnemy : MonoBehaviour
 
     private Enemy enemy;
     private PlayerController player;
-    private NavMeshAgent agent;
     private Renderer enemyRenderer;
     private float attackTimer;
     private float aggroTimer;
@@ -31,25 +29,16 @@ public class BearEnemy : MonoBehaviour
         if (tree == null)
             tree = FindAnyObjectByType<TreeObjective>();
 
-        agent = GetComponent<NavMeshAgent>();
-
-        if (agent == null)
-            agent = gameObject.AddComponent<NavMeshAgent>();
-
-        ConfigureAgent();
-        agent.speed = moveSpeed;
-        agent.stoppingDistance = attackDistance;
         enemyRenderer = GetComponent<Renderer>();
 
         if (enemyRenderer != null)
             enemyRenderer.material.color = new Color(0.4f, 0.2f, 0.05f);
 
-        EnableAgent();
     }
 
     void Update()
     {
-        if (tree == null || player == null || !tree.IsAlive || !agent.isOnNavMesh)
+        if (tree == null || player == null || !tree.IsAlive)
             return;
 
         attackTimer -= Time.deltaTime;
@@ -93,13 +82,10 @@ public class BearEnemy : MonoBehaviour
 
         if (targetDistance > attackDistance)
         {
-            agent.isStopped = false;
-            agent.SetDestination(targetPosition);
+            MoveTo(targetPosition);
         }
         else
         {
-            agent.isStopped = true;
-
             if (attackTimer <= 0f)
             {
                 if (targetsPlayer)
@@ -128,21 +114,10 @@ public class BearEnemy : MonoBehaviour
         honey.AddComponent<HoneyPuddle>();
     }
 
-    void EnableAgent()
+    void MoveTo(Vector3 targetPosition)
     {
-        NavMeshHit hit;
-
-        if (NavMesh.SamplePosition(transform.position, out hit, 3f, NavMesh.AllAreas))
-            agent.Warp(hit.position);
-    }
-
-    void ConfigureAgent()
-    {
-        CapsuleCollider enemyCollider = GetComponent<CapsuleCollider>();
-        float enemyHeight = enemyCollider.height * transform.localScale.y;
-        agent.height = enemyHeight;
-        agent.radius = enemyCollider.radius * transform.localScale.x;
-        agent.baseOffset = -enemyHeight * 0.5f;
+        transform.position = Vector3.MoveTowards(transform.position, targetPosition, moveSpeed * Time.deltaTime);
+        transform.LookAt(targetPosition);
     }
 
     Vector3 FlatPosition(Vector3 position)

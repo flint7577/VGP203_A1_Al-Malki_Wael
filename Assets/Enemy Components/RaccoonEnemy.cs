@@ -1,5 +1,4 @@
 using UnityEngine;
-using UnityEngine.AI;
 
 public class RaccoonEnemy : MonoBehaviour
 {
@@ -13,7 +12,6 @@ public class RaccoonEnemy : MonoBehaviour
 
     private Enemy enemy;
     private PlayerController player;
-    private NavMeshAgent agent;
     private Vector3 surfacePosition;
     private float attackTimer;
     private float slowMultiplier = 1f;
@@ -28,13 +26,6 @@ public class RaccoonEnemy : MonoBehaviour
         if (tree == null)
             tree = FindAnyObjectByType<TreeObjective>();
 
-        agent = GetComponent<NavMeshAgent>();
-
-        if (agent == null)
-            agent = gameObject.AddComponent<NavMeshAgent>();
-
-        ConfigureAgent();
-        agent.enabled = false;
         surfacePosition = transform.position;
         transform.position -= Vector3.up * riseDistance;
 
@@ -54,24 +45,16 @@ public class RaccoonEnemy : MonoBehaviour
             transform.position = Vector3.MoveTowards(transform.position, surfacePosition, riseSpeed * Time.deltaTime);
 
             if (transform.position == surfacePosition)
-            {
                 isRising = false;
-                EnableAgent();
-            }
 
             return;
         }
-
-        if (!agent.isOnNavMesh)
-            return;
 
         attackTimer -= Time.deltaTime;
         slowTimer -= Time.deltaTime;
 
         if (slowTimer <= 0f)
             slowMultiplier = 1f;
-
-        agent.speed = moveSpeed * slowMultiplier;
 
         Vector3 treePosition = FlatPosition(tree.transform.position);
         Vector3 playerPosition = FlatPosition(player.transform.position);
@@ -84,13 +67,10 @@ public class RaccoonEnemy : MonoBehaviour
 
         if (targetDistance > attackDistance)
         {
-            agent.isStopped = false;
-            agent.SetDestination(targetPosition);
+            MoveTo(targetPosition);
         }
         else
         {
-            agent.isStopped = true;
-
             if (attackTimer <= 0f)
             {
                 if (playerIsBlocking)
@@ -109,23 +89,10 @@ public class RaccoonEnemy : MonoBehaviour
         slowTimer = 0.2f;
     }
 
-    void EnableAgent()
+    void MoveTo(Vector3 targetPosition)
     {
-        agent.enabled = true;
-        NavMeshHit hit;
-
-        if (NavMesh.SamplePosition(transform.position, out hit, 3f, NavMesh.AllAreas))
-            agent.Warp(hit.position);
-    }
-
-    void ConfigureAgent()
-    {
-        CapsuleCollider enemyCollider = GetComponent<CapsuleCollider>();
-        float enemyHeight = enemyCollider.height * transform.localScale.y;
-        agent.height = enemyHeight;
-        agent.radius = enemyCollider.radius * transform.localScale.x;
-        agent.baseOffset = -enemyHeight * 0.5f;
-        agent.stoppingDistance = attackDistance;
+        transform.position = Vector3.MoveTowards(transform.position, targetPosition, moveSpeed * slowMultiplier * Time.deltaTime);
+        transform.LookAt(targetPosition);
     }
 
     Vector3 FlatPosition(Vector3 position)
