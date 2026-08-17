@@ -5,12 +5,16 @@ public class PlayerHUD : MonoBehaviour
     public Vector2 barSize = new Vector2(220f, 20f);
 
     private PlayerController playerController;
+    private TreeObjective tree;
+    private WaveManager waveManager;
 
     private GUIStyle pickupStyle;
 
     void Awake()
     {
         playerController = GetComponent<PlayerController>();
+        tree = FindAnyObjectByType<TreeObjective>();
+        waveManager = FindAnyObjectByType<WaveManager>();
     }
 
     void OnGUI()
@@ -22,6 +26,15 @@ public class PlayerHUD : MonoBehaviour
 
         DrawBar(new Vector2(20f, 20f), playerController.HealthPercent, Color.red, "Health");
         DrawBar(new Vector2(20f, 50f), playerController.StaminaPercent, Color.yellow, "Stamina");
+
+        if (tree != null)
+            DrawBar(new Vector2(20f, 80f), tree.HealthPercent, Color.green, "Tree");
+
+        if (waveManager != null)
+            GUI.Label(new Rect(20f, 110f, 250f, 30f), $"Wave {waveManager.CurrentWave}  Enemies {Enemy.ActiveEnemyCount}");
+
+        if (!playerController.IsAlive || tree != null && !tree.IsAlive)
+            GUI.Label(new Rect(Screen.width * 0.5f - 50f, 50f, 100f, 30f), "GAME OVER");
     }
 
     void DrawDot()

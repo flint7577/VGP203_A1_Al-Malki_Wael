@@ -9,6 +9,7 @@ public class PlayerController : MonoBehaviour
     public InputActionReference moveAction;
     public InputActionReference interactAction;
     public InputActionReference throwAction;
+    public BoomerangProjectile boomerang;
 
 
     public float moveSpeed = 5f;
@@ -25,6 +26,7 @@ public class PlayerController : MonoBehaviour
 
     public float HealthPercent => currentHealth / maxHealth;
     public float StaminaPercent => currentStamina / maxStamina;
+    public bool IsAlive => currentHealth > 0f;
     public bool CanPickup { get; private set; }
     public string ButtonPrompt => interactAction.action.GetBindingDisplayString();
 
@@ -42,6 +44,9 @@ public class PlayerController : MonoBehaviour
     private float currentStamina;
     private bool jumpRequested;
     private bool isCrouching;
+    private bool isChargingBoomerang;
+    private float slowMultiplier = 1f;
+    private float slowTimer;
 
     void Awake()
     {
@@ -56,6 +61,9 @@ public class PlayerController : MonoBehaviour
         standingCenter = playerCollider.center;
         currentHealth = maxHealth;
         currentStamina = maxStamina;
+
+        if (boomerang != null)
+            boomerang.SetOwner(interactPoint, rb.GetComponentsInChildren<Collider>());
     }
 
     private void OnEnable()
@@ -83,6 +91,11 @@ public class PlayerController : MonoBehaviour
     }
     void Update()
     {
+        slowTimer -= Time.deltaTime;
+
+        if (slowTimer <= 0f)
+            slowMultiplier = 1f;
+
         moveInput = moveAction.action.ReadValue<Vector2>();
 
         SetCrouching(crouchAction.IsPressed());
@@ -102,36 +115,40 @@ public class PlayerController : MonoBehaviour
 
         if (throwAction != null && heldObject != null)
         {
-            BoomerangProjectile boomerangProjectile = heldObject.GetComponent<BoomerangProjectile>();
-
-            if (boomerangProjectile != null)
+            if (throwAction.action.WasPressedThisFrame())
+                Throw();
+        }
+        else if (throwAction != null && boomerang != null)
+        {
+            if (throwAction.action.WasPressedThisFrame() && boomerang.IsReady)
             {
-                if (throwAction.action.WasPressedThisFrame())
-                    boomerangProjectile.BeginCharge();
+                boomerang.BeginCharge();
+                isChargingBoomerang = true;
+            }
 
-                if (throwAction.action.IsPressed())
+            if (isChargingBoomerang && throwAction.action.IsPressed())
+            {
+                float chargeDelta = Time.deltaTime;
+
+                if (chargeStaminaPerSecond > 0f)
+                    chargeDelta = Mathf.Min(chargeDelta, currentStamina / chargeStaminaPerSecond);
+
+                if (chargeDelta > 0f)
                 {
-                    float chargeDelta = Time.deltaTime;
-
-                    if (chargeStaminaPerSecond > 0f)
-                        chargeDelta = Mathf.Min(chargeDelta, currentStamina / chargeStaminaPerSecond);
-
-                    if (chargeDelta > 0f)
-                    {
-                        boomerangProjectile.Charge(chargeDelta);
-                        currentStamina -= chargeStaminaPerSecond * chargeDelta;
-                        currentStamina = Mathf.Max(0f, currentStamina);
-                        usedStamina = true;
-                    }
-
-                    boomerangProjectile.ShowPath(interactPoint.position, cameraTransform.forward);
+                    boomerang.Charge(chargeDelta);
+                    currentStamina -= chargeStaminaPerSecond * chargeDelta;
+                    currentStamina = Mathf.Max(0f, currentStamina);
+                    usedStamina = true;
                 }
 
-                if (throwAction.action.WasReleasedThisFrame())
-                    Throw();
+                boomerang.ShowPath(interactPoint.position, cameraTransform.forward);
             }
-            else if (throwAction.action.WasPressedThisFrame())
-                Throw();
+
+            if (isChargingBoomerang && throwAction.action.WasReleasedThisFrame())
+            {
+                boomerang.Launch(cameraTransform.forward, boomerang.ChargeAmount);
+                isChargingBoomerang = false;
+            }
         }
 
         if (!usedStamina)
@@ -163,6 +180,8 @@ public class PlayerController : MonoBehaviour
             currentSpeed = crouchSpeed;
         else if (sprintAction.IsPressed())
             currentSpeed = sprintSpeed;
+
+        currentSpeed *= slowMultiplier;
 
         Vector3 velocity = move * currentSpeed;
         velocity.y = rb.linearVelocity.y;
@@ -223,13 +242,19 @@ public class PlayerController : MonoBehaviour
         currentHealth = Mathf.Clamp(currentHealth, 0f, maxHealth);
     }
 
+    public void SetSlowMultiplier(float amount)
+    {
+        slowMultiplier = amount;
+        slowTimer = 0.2f;
+    }
+
     Rigidbody FindPickup()
     {
         if (Physics.Raycast(cameraTransform.position, cameraTransform.forward, out RaycastHit hit, interactRange))
         {
             Rigidbody objectRb = hit.collider.attachedRigidbody;
 
-            if (objectRb != null && objectRb != rb)
+            if (objectRb != null && objectRb != rb && objectRb.GetComponent<BoomerangProjectile>() == null && objectRb.GetComponent<EnemyProjectile>() == null)
 
                 return objectRb;
         }
@@ -262,21 +287,17 @@ public class PlayerController : MonoBehaviour
         heldObject.position = interactPoint.position;
         heldObject.rotation = interactPoint.rotation;
 
-        BoomerangProjectile boomerangProjectile = heldObject.GetComponent<BoomerangProjectile>();
+        isChargingBoomerang = false;
 
-        if (boomerangProjectile != null)
-             boomerangProjectile.Pickup();
-            
-        
+        if (boomerang != null)
+        {
+            boomerang.CancelCharge();
+            boomerang.SetPocketed(true);
+        }
     }
 
     void Drop()
     {
-        BoomerangProjectile boomerangProjectile = heldObject.GetComponent<BoomerangProjectile>();
-
-        if (boomerangProjectile != null)
-            boomerangProjectile.Drop();
-
         heldObject.isKinematic = false;
         heldObject.useGravity = true;
 
@@ -285,21 +306,19 @@ public class PlayerController : MonoBehaviour
 
         heldObject = null;
         heldColliders = null;
+
+        if (boomerang != null)
+            boomerang.SetPocketed(false);
     }
 
     void Throw()
     {
         Rigidbody thrownObject = heldObject;
         AcornProjectile acornProjectile = thrownObject.GetComponent<AcornProjectile>();
-        BoomerangProjectile boomerangProjectile = thrownObject.GetComponent<BoomerangProjectile>();
-        Collider[] playerColliders = rb.GetComponentsInChildren<Collider>();
-        float chargeAmount = boomerangProjectile != null ? boomerangProjectile.ChargeAmount : 0f;
 
         Drop();
 
-        if (boomerangProjectile != null)
-            boomerangProjectile.Launch(cameraTransform.forward, chargeAmount, playerColliders);
-        else if (acornProjectile != null)
+        if (acornProjectile != null)
             acornProjectile.Launch(cameraTransform.forward);
         else
             thrownObject.AddForce(cameraTransform.forward * throwForce, ForceMode.Impulse);

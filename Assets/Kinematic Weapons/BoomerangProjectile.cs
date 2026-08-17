@@ -13,24 +13,41 @@ public class BoomerangProjectile : MonoBehaviour
     public float curveAmount = 3f;
     public float arcHeight = 2f;
     public float spinSpeed = 720f;
+    public float damage = 20f;
     public Vector3 spinAxis = Vector3.up;
     public int pathPoints = 40;
 
     public float ChargeAmount { get; private set; }
+    public bool IsReady { get; private set; }
 
     private Rigidbody rb;
     private LineRenderer lineRenderer;
-    //private Transform returnPoint;
+    private Transform returnPoint;
+    private Collider[] boomerangColliders;
+    private MeshRenderer[] meshRenderers;
+    private Collider[] ownerColliders;
     private Vector3 startPosition;
     private Vector3 launchDirection;
     private float flightTime;
     private float flightProgress;
     private bool isFlying;
+    private bool isPocketed;
+    private Enemy lastEnemyHit;
 
     void Awake()
     {
+        Initialize();
+    }
+
+    void Initialize()
+    {
+        if (rb != null)
+            return;
+
         rb = GetComponent<Rigidbody>();
         lineRenderer = GetComponent<LineRenderer>();
+        boomerangColliders = GetComponentsInChildren<Collider>();
+        meshRenderers = GetComponentsInChildren<MeshRenderer>();
 
         rb.interpolation = RigidbodyInterpolation.Interpolate;
         rb.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
@@ -57,12 +74,21 @@ public class BoomerangProjectile : MonoBehaviour
     void FixedUpdate()
     {
         if (!isFlying)
+        {
+            if (IsReady && returnPoint != null)
+            {
+                rb.MovePosition(returnPoint.position);
+                rb.MoveRotation(returnPoint.rotation);
+            }
+
             return;
+        }
 
         flightProgress += Time.fixedDeltaTime / flightTime;
 
         float progress = Mathf.Clamp01(flightProgress);
-        Vector3 nextPosition = GetFlightPosition(progress, startPosition, launchDirection, ChargeAmount);
+        Vector3 targetPosition = returnPoint != null ? returnPoint.position : startPosition;
+        Vector3 nextPosition = GetFlightPosition(progress, startPosition, launchDirection, ChargeAmount, targetPosition);
 
         rb.MovePosition(nextPosition);
 
@@ -74,23 +100,40 @@ public class BoomerangProjectile : MonoBehaviour
             FinishFlight();
     }
 
-    public void Pickup()
+    public void SetOwner(Transform catchPoint, Collider[] playerColliders)
     {
+        Initialize();
+        returnPoint = catchPoint;
+        ownerColliders = playerColliders;
         isFlying = false;
+        IsReady = true;
         ChargeAmount = 0f;
+        rb.isKinematic = true;
+        rb.useGravity = false;
+        SetColliders(false);
+        SetVisible(true);
+        rb.position = returnPoint.position;
+        rb.rotation = returnPoint.rotation;
         HidePath();
     }
 
-    public void Drop()
+    public void SetPocketed(bool pocketed)
     {
-        isFlying = false;
-        ChargeAmount = 0f;
-        HidePath();
+        isPocketed = pocketed;
+
+        if (!isFlying)
+            SetVisible(!isPocketed);
     }
 
     public void BeginCharge()
     {
         ChargeAmount = 0f;
+    }
+
+    public void CancelCharge()
+    {
+        ChargeAmount = 0f;
+        HidePath();
     }
 
     public void Charge(float deltaTime)
@@ -110,7 +153,7 @@ public class BoomerangProjectile : MonoBehaviour
         for (int i = 0; i < pointCount; i++)
         {
             float progress = (float)i / (pointCount - 1);
-            Vector3 point = GetFlightPosition(progress, pathStart, normalizedDirection, ChargeAmount);
+            Vector3 point = GetFlightPosition(progress, pathStart, normalizedDirection, ChargeAmount, pathStart);
             lineRenderer.SetPosition(i, point);
         }
     }
@@ -121,22 +164,26 @@ public class BoomerangProjectile : MonoBehaviour
         lineRenderer.positionCount = 0;
     }
 
-    public void Launch(Vector3 direction, float chargeAmount, Collider[] ownerColliders)
+    public void Launch(Vector3 direction, float chargeAmount)
     {
+        if (!IsReady || isPocketed)
+            return;
+
         startPosition = rb.position;
         launchDirection = direction.normalized;
         ChargeAmount = Mathf.Clamp01(chargeAmount);
-        //returnPoint = target;
         flightTime = Mathf.Lerp(minimumFlightTime, maximumFlightTime, ChargeAmount);
         flightProgress = 0f;
         isFlying = true;
+        IsReady = false;
+        lastEnemyHit = null;
 
         HidePath();
+        SetVisible(true);
+        SetColliders(true);
 
         rb.isKinematic = true;
         rb.useGravity = false;
-
-        Collider[] boomerangColliders = GetComponentsInChildren<Collider>();
 
         foreach (Collider boomerangCollider in boomerangColliders)
         {
@@ -145,7 +192,7 @@ public class BoomerangProjectile : MonoBehaviour
         }
     }
 
-    Vector3 GetFlightPosition(float progress, Vector3 origin, Vector3 direction, float chargeAmount)
+    Vector3 GetFlightPosition(float progress, Vector3 origin, Vector3 direction, float chargeAmount, Vector3 targetPosition)
     {
         float distance = Mathf.Lerp(minimumDistance, maximumDistance, chargeAmount);
         float outwardDistance = Mathf.Sin(progress * Mathf.PI);
@@ -153,31 +200,60 @@ public class BoomerangProjectile : MonoBehaviour
 
         Vector3 sideDirection = Vector3.Cross(Vector3.up, direction).normalized;
 
-       /*if (sideDirection.sqrMagnitude == 0f)
-            sideDirection = transform.right;*/
-
         Vector3 position = origin;
         position += direction * distance * outwardDistance;
         position += Vector3.up * arcHeight * outwardDistance;
         position += sideDirection * curveAmount * sidewaysDistance;
 
-        /*if (progress > 0.5f)
+        if (progress > 0.5f)
         {
             float returnProgress = (progress - 0.5f) * 2f;
             position += (targetPosition - origin) * returnProgress;
-        }*/
+        }
 
         return position;
+    }
+
+    void OnCollisionEnter(Collision collision)
+    {
+        if (!isFlying)
+            return;
+
+        Enemy enemy = collision.gameObject.GetComponent<Enemy>();
+
+        if (enemy != null && enemy != lastEnemyHit)
+        {
+            enemy.TakeDamage(damage);
+            lastEnemyHit = enemy;
+        }
     }
 
     void FinishFlight()
     {
         isFlying = false;
+        IsReady = true;
         ChargeAmount = 0f;
 
-        rb.isKinematic = false;
-        rb.useGravity = true;
+        rb.isKinematic = true;
+        rb.useGravity = false;
         rb.linearVelocity = Vector3.zero;
         rb.angularVelocity = Vector3.zero;
+        SetColliders(false);
+        SetVisible(!isPocketed);
+
+        if (returnPoint != null)
+            rb.position = returnPoint.position;
+    }
+
+    void SetColliders(bool value)
+    {
+        foreach (Collider boomerangCollider in boomerangColliders)
+            boomerangCollider.enabled = value;
+    }
+
+    void SetVisible(bool value)
+    {
+        foreach (MeshRenderer meshRenderer in meshRenderers)
+            meshRenderer.enabled = value;
     }
 }
